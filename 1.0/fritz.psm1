@@ -2,51 +2,134 @@
 
 function Get-Tr64Description {
     process {
+        $global:cachedTr64Description = $null
         Invoke-RestMethod -Method Get -Uri http://fritz.box:49000/tr64desc.xml | Write-Output
     }
 }
 
-function Get-Tr64ServiceList {
+function script:cachedTr64Description {
+    if($global:cachedTr64Description) {
+        return $global:cachedTr64Description
+    }
+
+    "Retrieving TR64 Description"|Write-Verbose
+
+    return ($global:cachedTr64Description = Get-Tr64description)
+}
+
+class Tr64Service {
+    $ServiceType
+    $ServiceId
+    $ControlURL
+    $EventSubURL
+    $SCPDURL
+}
+
+function Select-Tr64ServiceList {
+    <#
+    .SYNOPSIS
+        Retrieves a list of services available from the root device
+        The values of the XmlElements are mapped to properties of a data class for easier processing
+
+    .EXAMPLE
+        Select-Tr64ServiceList 
+        Retrieves a list of services available from the root device
+
+    .EXAMPLE
+        Get-Tr64Description | Select-Tr64ServiceList 
+        Retrieves a list of services available from the root device
+    #>
     [CmdletBinding()]
     param(
         [Parameter(ValueFromPipeline)]
-        [xml]$Tr64Xml = (Get-Tr64Description)
+        [xml]$Tr64Xml = (cachedTr64Description)
     )
     process {
-        $Tr64Xml.root.device.serviceList.service | Write-Output
+        $Tr64Xml.root.device.serviceList.service | ForEach-Object -Process {
+            $tmp = [Tr64Service]::new()
+            $tmp.ControlURL = $_.controlURL
+            $tmp.EventSubURL = $_.eventSubURL
+            $tmp.SCPDURL = $_.SCPDURL
+            $tmp.ServiceId = $_.serviceId
+            $tmp.ServiceType = $_.serviceType
+            $tmp | Write-Output
+        }
     }
 }
 
-function Get-DeviceInfo {
+class Tr64ServiceAction {
+    $ServiceType
+    $SCPDURL
+    $ActionName
+}
+
+function Select-Tr64ServiceAction {
+    <#
+    .SYNOPSIS
+        Retrieves the action names from a SCPDURL of a TR64 service description
+        The values of the XmlElements are mapped to properties of a data class for easier processing
+
+    .EXAMPLE
+         Select-Tr64ServiceList | Select-Tr64ServiceAction
+         Retrieves a list of all action names available for all services of the fritz box global services
+
+    .EXAMPLE
+         Select-Tr64DeviceServiceList -DeviceType urn:dslforum-org:device:LANDevice:1 | Select-Tr64ServiceAction
+         Retrieves a list of all action names avaliable for all services for device urn:dslforum-org:device:LANDevice:1
+    #> 
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory,ValueFromPipeline)]
-        [xml]$Tr64Xml
+        [Parameter(Mandatory,ValueFromPipelineByPropertyName)]
+        [string]$ServiceType,
+        
+        [Parameter(Mandatory,ValueFromPipelineByPropertyName)]
+        [string]$SCPDURL
+    )
+    process {
+
+        "Retrieving SCP document for service $ServiceType" | Write-Verbose
+
+        $responseXml = Invoke-RestMethod -Method Get -Uri "http://fritz.box:49000$SCPDURL" 
+        $responseXml.scpd.actionList.action | ForEach-Object -Process {
+            $tmp = [Tr64ServiceAction]::new()
+            $tmp.ActionName = $_.name
+            $tmp.SCPDURL = $SCPDURL
+            $tmp.ServiceType = $ServiceType
+            $tmp | Write-Output
+        }
+    }
+}
+
+function Select-Tr64DeviceInfo {
+    [CmdletBinding()]
+    param(
+        [Parameter(ValueFromPipeline)]
+        [xml]$Tr64Xml = (cachedTr64Description)
     )
     process {
         $Tr64Xml.root.device | Write-Output
     }
 }
 
-function Select-DeviceList {
+function Select-Tr64DeviceList {
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory,ValueFromPipeline)]
-        [xml]$Tr64Xml
+        [Parameter(ValueFromPipeline)]
+        [xml]$Tr64Xml = (cachedTr64Description)
     )
     process {
         $Tr64Xml.root.device.deviceList.device | Write-Output
     }
 }
 
-function Select-DeviceServiceList {
+function Select-Tr64DeviceServiceList {
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory,ValueFromPipeline)]
-        [xml]$Tr64Xml,
+        [Parameter(ValueFromPipeline)]
+        [xml]$Tr64Xml = (cachedTr64Description),
 
         [Parameter(Mandatory)]
-        [ArgumentCompleter({Get-Tr64description | Select-DeviceList | Select-Object -ExpandProperty deviceType | Where-Object -FilterScript { $_.Contains($args[2]) }})]
+        [ArgumentCompleter({Get-Tr64description | Select-Tr64DeviceList | Select-Object -ExpandProperty deviceType | Where-Object -FilterScript { $_.Contains($args[2]) }})]
         [string]$DeviceType
     )
     process {
@@ -59,8 +142,16 @@ function Select-DeviceServiceList {
 
         } | ForEach-Object -Process {
             
-            $_.serviceList.service | Write-Output
-        
+            $_.serviceList.service | ForEach-Object -Process {
+
+                $tmp = [Tr64Service]::new()
+                $tmp.ControlURL = $_.controlURL
+                $tmp.EventSubURL = $_.eventSubURL
+                $tmp.SCPDURL = $_.SCPDURL
+                $tmp.ServiceId = $_.serviceId
+                $tmp.ServiceType = $_.serviceType
+                $tmp | Write-Output
+            }
         }
     }
 }
