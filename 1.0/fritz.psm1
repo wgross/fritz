@@ -152,7 +152,7 @@ function Get-PhoneBookList {
 </s:Envelope>
 "@
         }
-        #<NewPhonebookList>0</NewPhonebookList>
+        
         $responseXml = Invoke-RestMethod -Method Post -Uri "$FritzBoxUri`:$SecurityPort$ControlUrl" @parameters
 
         "Received phone book list (ids:$($responseXml.Envelope.Body.GetPhonebookListResponse.NewPhonebookList))"| Write-Verbose 
