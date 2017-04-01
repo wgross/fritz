@@ -77,6 +77,7 @@ function Select-Tr64ServiceAction {
          Select-Tr64DeviceServiceList -DeviceType urn:dslforum-org:device:LANDevice:1 | Select-Tr64ServiceAction
          Retrieves a list of all action names avaliable for all services for device urn:dslforum-org:device:LANDevice:1
     #> 
+    [OutputType([Tr64ServiceAction])]
     [CmdletBinding()]
     param(
         [Parameter(Mandatory,ValueFromPipelineByPropertyName)]
@@ -153,6 +154,35 @@ function Select-Tr64DeviceServiceList {
                 $tmp | Write-Output
             }
         }
+    }
+}
+
+function Get-Tr64ServiceActionDescription {
+    <#
+    .SYNOPSIS
+        Retrieves a paort of a the XML description of a services type decribing only the 
+        given action.
+    
+    .EXAMPLE
+         (Select-Tr64ServiceList | Select-Tr64ServiceAction | where ActionName -eq "GetDeviceLog"  | Get-Tr64ServiceActionDescription).OuterXml
+         Retrieves the description of the GetDeviceLog action and shows ist in the shell
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(ValueFromPipelineByPropertyName)]
+        $ServiceType,
+
+        [Parameter(ValueFromPipelineByPropertyName)]
+        [string]$SCPDURL,
+
+        [Parameter(ValueFromPipelineByPropertyName)]
+        $ActionName
+    )
+    process {
+        $responseXml = Invoke-RestMethod -Method Get -Uri "http://fritz.box:49000$SCPDURL"
+        $responseXml.scpd.actionList.action | Where-Object -FilterScript {
+            $_.name -eq $ActionName
+        } | Write-Output
     }
 }
 
@@ -357,5 +387,55 @@ function Get-CallList {
     }
 }
 
-#enregion
+#endregion
 
+#region Device maintenance 
+
+function Get-DeviceLog {
+    param (
+        [Parameter()]
+        $FritzBoxUri = "https://fritz.box",
+
+        [Parameter()]
+        [pscredential]$Credentials = (cachedFritzBoxCredentials),
+
+        [Parameter()]
+        [int]$SecurityPort = (cachedSecurityPort),
+
+        [Parameter()]
+        [string]$ControlUrl =  "/deviceinfoSCPD.xml",
+
+        [Parameter()]
+        [string]$ServiceType = "urn:dslforum-org:service:X_AVM-DE_OnTel:1",
+
+        [Parameter()]
+        [string]$ActionName = "GetCallList"
+    )
+    process {
+        $parameters = @{
+            Credential = (cachedFritzBoxCredentials)
+            Headers = @{
+                "Content-Type" = 'text/xml; charset="utf-8"'
+                "SOAPACTION"= "$ServiceType#$ActionName"
+            }
+            Body = @"
+<?xml version="1.0"?>
+<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+     <s:Body>
+        <u:$ActionName xmlns:u="$ServiceType">
+        </u:$ActionName>
+    </s:Body>
+</s:Envelope>
+"@
+        }
+
+        $responseXml = Invoke-RestMethod -Method Post -Uri "$FritzBoxUri`:$SecurityPort$ControlUrl" @parameters
+
+        "Received call list url: $($responseXml.Envelope.Body.GetCallListResponse.NewCallListURL)"
+        
+        $responseXml = Invoke-RestMethod -Method Get -Uri ($responseXml.Envelope.Body.GetCallListResponse.NewCallListURL)
+        $responseXml.root.Call | Write-Output
+    }
+}
+
+#endregion 
