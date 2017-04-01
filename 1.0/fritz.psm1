@@ -340,8 +340,20 @@ function Get-PhoneBook {
 
 #region Retrieve list of calls
 
+enum CallListTypeValues {
+    incoming = 1
+    missed = 2
+    outgoing = 3
+    active_incoming = 9
+    rejected_incoming = 10
+    active_outgoing = 11
+}
+
 function Get-CallList {
     param (
+        [Parameter()]
+        [CallListTypeValues[]]$Type,
+
         [Parameter()]
         $FritzBoxUri = "https://fritz.box",
 
@@ -383,7 +395,18 @@ function Get-CallList {
         "Received call list url: $($responseXml.Envelope.Body.GetCallListResponse.NewCallListURL)"
         
         $responseXml = Invoke-RestMethod -Method Get -Uri ($responseXml.Envelope.Body.GetCallListResponse.NewCallListURL)
-        $responseXml.root.Call | Write-Output
+        
+        if($Type) {
+            # filter calls by type
+            $responseXml.root.Call | Where-Object -FilterScript {
+                if($Type -contains $_.Type) {
+                    $_|Write-Output
+                }
+            }
+        } else {
+            # send all calls to pipe
+            $responseXml.root.Call | Write-Output
+        }
     }
 }
 
@@ -403,13 +426,13 @@ function Get-DeviceLog {
         [int]$SecurityPort = (cachedSecurityPort),
 
         [Parameter()]
-        [string]$ControlUrl =  "/deviceinfoSCPD.xml",
+        [string]$ControlUrl =  "/upnp/control/deviceinfo",
 
         [Parameter()]
-        [string]$ServiceType = "urn:dslforum-org:service:X_AVM-DE_OnTel:1",
+        [string]$ServiceType = "urn:dslforum-org:service:DeviceInfo:1",
 
         [Parameter()]
-        [string]$ActionName = "GetCallList"
+        [string]$ActionName = "GetDeviceLog"
     )
     process {
         $parameters = @{
@@ -430,11 +453,7 @@ function Get-DeviceLog {
         }
 
         $responseXml = Invoke-RestMethod -Method Post -Uri "$FritzBoxUri`:$SecurityPort$ControlUrl" @parameters
-
-        "Received call list url: $($responseXml.Envelope.Body.GetCallListResponse.NewCallListURL)"
-        
-        $responseXml = Invoke-RestMethod -Method Get -Uri ($responseXml.Envelope.Body.GetCallListResponse.NewCallListURL)
-        $responseXml.root.Call | Write-Output
+        $responseXml.Envelope.Body.GetDeviceLogResponse.NewDeviceLog | Write-Output
     }
 }
 
