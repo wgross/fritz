@@ -350,6 +350,19 @@ enum CallListTypeValues {
 }
 
 function Get-CallList {
+    <#
+    .SYNOPSIS
+        Retrieves the call list from the fritz box.
+        The list is filerable by the call type
+    
+    .EXAMPLE
+        Get-CallList -Type incoming,missed
+        Returns all incoming or missed calls from the call list
+
+    .EXAMPLE
+        Get-CallList
+        Returns all calls from the call list
+    #>
     param (
         [Parameter()]
         [CallListTypeValues[]]$Type,
