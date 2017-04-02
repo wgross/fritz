@@ -71,5 +71,5 @@ process {
     }
     
     # validate settings
-    $wc.DownloadString('http://microsoft.com') | Out-Null
+    $wc.DownloadString('https://www.heise.de') | Out-Null
 }

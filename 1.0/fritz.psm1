@@ -190,6 +190,26 @@ function Get-Tr64ServiceActionDescription {
 
 #region Prepare authenticated connections
 
+function New-FritzBoxCredentials {
+    param(
+        [Parameter()]
+        $UserName = "dslf-config"
+    )
+    $global:cachedFritzboxCredentials = [pscredential]::new("dslf-config",(Read-Host -Prompt "Fritzbox password" -AsSecureString))
+    $global:cachedFritzboxCredentials|Write-Output
+}
+
+function script:cachedFritzBoxCredentials {
+    if($global:cachedFritzboxCredentials) {
+        return $global:cachedFritzboxCredentials
+    }
+    return ($global:cachedFritzboxCredentials = New-FritzBoxCredentials)
+}
+
+#endregion 
+
+#region urn:dslforum-org:service:DeviceInfo:1 / Device maintenance 
+
 function Get-SecurityPort {
     [CmdletBinding()]
     param (
@@ -228,16 +248,52 @@ function script:cachedSecurityPort {
     return ($global:cachedSecurityPort = Get-SecurityPort)
 }
 
-function script:cachedFritzBoxCredentials {
-    if($global:cachedFritzboxCredentials) {
-        return $global:cachedFritzboxCredentials
+function Get-DeviceLog {
+    param (
+        [Parameter()]
+        $FritzBoxUri = "https://fritz.box",
+
+        [Parameter()]
+        [pscredential]$Credentials = (cachedFritzBoxCredentials),
+
+        [Parameter()]
+        [int]$SecurityPort = (cachedSecurityPort),
+
+        [Parameter()]
+        [string]$ControlUrl =  "/upnp/control/deviceinfo",
+
+        [Parameter()]
+        [string]$ServiceType = "urn:dslforum-org:service:DeviceInfo:1",
+
+        [Parameter()]
+        [string]$ActionName = "GetDeviceLog"
+    )
+    process {
+        $parameters = @{
+            Credential = $Credentials
+            Headers = @{
+                "Content-Type" = 'text/xml; charset="utf-8"'
+                "SOAPACTION"= "$ServiceType#$ActionName"
+            }
+            Body = @"
+<?xml version="1.0"?>
+<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+     <s:Body>
+        <u:$ActionName xmlns:u="$ServiceType">
+        </u:$ActionName>
+    </s:Body>
+</s:Envelope>
+"@
+        }
+
+        $responseXml = Invoke-RestMethod -Method Post -Uri "$FritzBoxUri`:$SecurityPort$ControlUrl" @parameters
+        $responseXml.Envelope.Body.GetDeviceLogResponse.NewDeviceLog | Write-Output
     }
-    return ($global:cachedFritzboxCredentials = [pscredential]::new("dslf-config",(Read-Host -Prompt "Fritzbox password" -AsSecureString)))
 }
 
 #endregion 
 
-#region Retrieve PhoneBooks
+#region urn:dslforum-org:service:X_AVM-DE_OnTel:1 / Retrieve PhoneBooks
 
 function Get-PhoneBookList {
     param (
@@ -258,7 +314,7 @@ function Get-PhoneBookList {
     )
     process {
         $parameters = @{
-            Credential = [pscredential]::new("dslf-config",(ConvertTo-SecureString -String $Password -AsPlainText -Force))
+            Credential = $Credentials
             Headers = @{
                 "Content-Type" = 'text/xml; charset="utf-8"'
                 "SOAPACTION"= "$ServiceType#GetPhoneBookList"
@@ -305,7 +361,7 @@ function Get-PhoneBook {
     )
     process {
         $parameters = @{
-            Credential = [pscredential]::new("dslf-config",(ConvertTo-SecureString -String $Password -AsPlainText -Force))
+            Credential = $Credentials
             Headers = @{
                 "Content-Type" = 'text/xml; charset="utf-8"'
                 "SOAPACTION"= "$ServiceType#GetPhoneBook"
@@ -338,7 +394,7 @@ function Get-PhoneBook {
 
 #endregion 
 
-#region Retrieve list of calls
+#region urn:dslforum-org:service:X_AVM-DE_OnTel:1 / Retrieve list of calls
 
 enum CallListTypeValues {
     incoming = 1
@@ -362,6 +418,10 @@ function Get-CallList {
     .EXAMPLE
         Get-CallList
         Returns all calls from the call list
+
+    .EXAMPLE
+        Get-CallList | sort Id -Descending | select -First 1
+        Retrieve the latest call
     #>
     param (
         [Parameter()]
@@ -387,7 +447,7 @@ function Get-CallList {
     )
     process {
         $parameters = @{
-            Credential = (cachedFritzBoxCredentials)
+            Credential = $Credentials
             Headers = @{
                 "Content-Type" = 'text/xml; charset="utf-8"'
                 "SOAPACTION"= "$ServiceType#$ActionName"
@@ -404,7 +464,7 @@ function Get-CallList {
         }
 
         $responseXml = Invoke-RestMethod -Method Post -Uri "$FritzBoxUri`:$SecurityPort$ControlUrl" @parameters
-
+        
         "Received call list url: $($responseXml.Envelope.Body.GetCallListResponse.NewCallListURL)"
         
         $responseXml = Invoke-RestMethod -Method Get -Uri ($responseXml.Envelope.Body.GetCallListResponse.NewCallListURL)
@@ -425,49 +485,4 @@ function Get-CallList {
 
 #endregion
 
-#region Device maintenance 
 
-function Get-DeviceLog {
-    param (
-        [Parameter()]
-        $FritzBoxUri = "https://fritz.box",
-
-        [Parameter()]
-        [pscredential]$Credentials = (cachedFritzBoxCredentials),
-
-        [Parameter()]
-        [int]$SecurityPort = (cachedSecurityPort),
-
-        [Parameter()]
-        [string]$ControlUrl =  "/upnp/control/deviceinfo",
-
-        [Parameter()]
-        [string]$ServiceType = "urn:dslforum-org:service:DeviceInfo:1",
-
-        [Parameter()]
-        [string]$ActionName = "GetDeviceLog"
-    )
-    process {
-        $parameters = @{
-            Credential = (cachedFritzBoxCredentials)
-            Headers = @{
-                "Content-Type" = 'text/xml; charset="utf-8"'
-                "SOAPACTION"= "$ServiceType#$ActionName"
-            }
-            Body = @"
-<?xml version="1.0"?>
-<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
-     <s:Body>
-        <u:$ActionName xmlns:u="$ServiceType">
-        </u:$ActionName>
-    </s:Body>
-</s:Envelope>
-"@
-        }
-
-        $responseXml = Invoke-RestMethod -Method Post -Uri "$FritzBoxUri`:$SecurityPort$ControlUrl" @parameters
-        $responseXml.Envelope.Body.GetDeviceLogResponse.NewDeviceLog | Write-Output
-    }
-}
-
-#endregion 
