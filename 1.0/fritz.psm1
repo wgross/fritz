@@ -293,7 +293,7 @@ function Get-DeviceLog {
 
 #endregion 
 
-#region urn:dslforum-org:service:X_AVM-DE_OnTel:1 / Retrieve PhoneBooks
+#region urn:dslforum-org:service:X_AVM-DE_OnTel:1 / Retrieve PhoneBooks, Call List
 
 function Get-PhoneBookList {
     param (
@@ -392,10 +392,6 @@ function Get-PhoneBook {
     }
 }
 
-#endregion 
-
-#region urn:dslforum-org:service:X_AVM-DE_OnTel:1 / Retrieve list of calls
-
 enum CallListTypeValues {
     incoming = 1
     missed = 2
@@ -465,7 +461,7 @@ function Get-CallList {
 
         $responseXml = Invoke-RestMethod -Method Post -Uri "$FritzBoxUri`:$SecurityPort$ControlUrl" @parameters
         
-        "Received call list url: $($responseXml.Envelope.Body.GetCallListResponse.NewCallListURL)"
+        "Received call list url: $($responseXml.Envelope.Body.GetCallListResponse.NewCallListURL)" | Write-Verbose
         
         $responseXml = Invoke-RestMethod -Method Get -Uri ($responseXml.Envelope.Body.GetCallListResponse.NewCallListURL)
         
