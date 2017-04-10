@@ -25,18 +25,18 @@ class Tr64Service {
     $SCPDURL
 }
 
-function Select-Tr64ServiceList {
+function Select-Tr64Service {
     <#
     .SYNOPSIS
         Retrieves a list of services available from the root device
         The values of the XmlElements are mapped to properties of a data class for easier processing
 
     .EXAMPLE
-        Select-Tr64ServiceList 
+        Select-Tr64Service 
         Retrieves a list of services available from the root device
 
     .EXAMPLE
-        Get-Tr64Description | Select-Tr64ServiceList 
+        Get-Tr64Description | Select-Tr64Service 
         Retrieves a list of services available from the root device
     #>
     [CmdletBinding()]
@@ -70,7 +70,7 @@ function Select-Tr64ServiceAction {
         The values of the XmlElements are mapped to properties of a data class for easier processing
 
     .EXAMPLE
-         Select-Tr64ServiceList | Select-Tr64ServiceAction
+         Select-Tr64Service | Select-Tr64ServiceAction
          Retrieves a list of all action names available for all services of the fritz box global services
 
     .EXAMPLE
@@ -164,7 +164,7 @@ function Get-Tr64ServiceActionDescription {
         given action.
     
     .EXAMPLE
-         (Select-Tr64ServiceList | Select-Tr64ServiceAction | where ActionName -eq "GetDeviceLog"  | Get-Tr64ServiceActionDescription).OuterXml
+         (Select-Tr64Service | Select-Tr64ServiceAction | where ActionName -eq "GetDeviceLog"  | Get-Tr64ServiceActionDescription).OuterXml
          Retrieves the description of the GetDeviceLog action and shows ist in the shell
     #>
     [CmdletBinding()]
@@ -379,16 +379,75 @@ function Get-PhoneBook {
         }
 
         $responseXml = Invoke-RestMethod -Method Post -Uri "$FritzBoxUri`:$SecurityPort$ControlUrl" @parameters
-        
+
         "Received phone book (name:$($responseXml.Envelope.Body.GetPhonebookResponse.NewPhonebookName),url=$($responseXml.Envelope.Body.GetPhonebookResponse.NewPhonebookURL))"| Write-Verbose 
         
         $responseXml = Invoke-RestMethod -Method Get -Uri ($responseXml.Envelope.Body.GetPhonebookResponse.NewPhonebookURL)
+        #$responseXml.OuterXml
         $responseXml.phonebooks.phonebook.contact | ForEach-Object -Process {
             [pscustomobject]@{
+                #unknown semantic#uniqueid = $_.uniqueid
                 lastName = $_.person.realName
                 number = $_.telephony.number.'#text'
             }
         } | Write-Output
+    }
+}
+
+function local:Get-PhoneBookEntry {
+    # semantic of Id is unkown
+    param (
+        [Parameter(Mandatory)]
+        [ValidateNotNull()]
+        [int]$PhoneBookEntryId,
+        
+        [Parameter()]
+        [int]$PhoneBookId = 0,
+        
+        [Parameter()]
+        $FritzBoxUri = "https://fritz.box",
+
+        [Parameter()]
+        [pscredential]$Credentials = (cachedFritzBoxCredentials),
+
+        [Parameter()]
+        [int]$SecurityPort = (cachedSecurityPort),
+
+        [Parameter(DontShow)]
+        [string]$ControlUrl = "/upnp/control/x_contact",
+
+        [Parameter(DontShow)]
+        [string]$ServiceType = "urn:dslforum-org:service:X_AVM-DE_OnTel:1",
+
+        [Parameter(DontShow)]
+        [string]$ActionName = "GetPhoneBookEntry"
+    )
+    process {
+        $parameters = @{
+            Credential = $Credentials
+            Headers = @{
+                "Content-Type" = 'text/xml; charset="utf-8"'
+                "SOAPACTION"= "$ServiceType#$ActionName"
+            }
+            Body = @"
+<?xml version="1.0"?>
+<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+     <s:Body>
+        <u:$ActionName xmlns:u="$ServiceType">
+            <NewPhonebookID>$PhoneBookId</NewPhonebookID>
+            <NewPhonebookEntryID>$PhoneBookEntryId</NewPhonebookEntryID>
+        </u:$ActionName>
+    </s:Body>
+</s:Envelope>
+"@
+        }
+
+        $responseXml = Invoke-RestMethod -Method Post -Uri "$FritzBoxUri`:$SecurityPort$ControlUrl" @parameters
+        
+        "Received phone book '$($responseXml.Envelope.Body.GetPhonebookEntryResponse.NewPhonebookEntryData)'"| Write-Verbose 
+        
+        $phoneBookEntryDataXml = [xml]($responseXml.Envelope.Body.GetPhonebookEntryResponse.NewPhonebookEntryData)
+        $phoneBookEntryDataXml.OuterXml
     }
 }
 
@@ -467,14 +526,14 @@ function Get-CallList {
         
         if($Type) {
             # filter calls by type
-            $responseXml.root.Call | Where-Object -FilterScript {
+            $responseXml.root.Call | Sort-Object -Property Id -Descending | Where-Object -FilterScript {
                 if($Type -contains $_.Type) {
                     $_|Write-Output
                 }
             }
         } else {
             # send all calls to pipe
-            $responseXml.root.Call | Write-Output
+            $responseXml.root.Call | Sort-Object -Property Id -Descending | Write-Output
         }
     }
 }
