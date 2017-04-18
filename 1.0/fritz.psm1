@@ -7,7 +7,7 @@ function Get-Tr64Description {
     }
 }
 
-function script:cachedTr64Description {
+function cachedTr64Description {
     if($global:cachedTr64Description) {
         return $global:cachedTr64Description
     }
@@ -199,7 +199,7 @@ function New-FritzBoxCredentials {
     $global:cachedFritzboxCredentials|Write-Output
 }
 
-function script:cachedFritzBoxCredentials {
+function cachedFritzBoxCredentials {
     if($global:cachedFritzboxCredentials) {
         return $global:cachedFritzboxCredentials
     }
@@ -241,7 +241,7 @@ function Get-SecurityPort {
     }
 }
 
-function script:cachedSecurityPort {    
+function cachedSecurityPort {    
     if($global:cachedSecurityPort) {
         return $global:cachedSecurityPort
     }
@@ -394,7 +394,7 @@ function Get-PhoneBook {
     }
 }
 
-function local:Get-PhoneBookEntry {
+function Get-PhoneBookEntry {
     # semantic of Id is unkown
     param (
         [Parameter(Mandatory)]
@@ -540,4 +540,4 @@ function Get-CallList {
 
 #endregion
 
-
+Export-ModuleMember -Function "*-*"
