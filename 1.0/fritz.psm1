@@ -1,4 +1,35 @@
-﻿#region Inspect device configuration
+﻿using namespace System.Net
+using namespace System.Security.Cryptography.X509Certificates
+
+#region Accept the self-signed certificate of the fritz box
+
+# fritz box ssl certificates are self signed. .Net rejectes these not by default
+class TrustAllCertsPolicy : ICertificatePolicy {
+    [bool] CheckValidationResult([ServicePoint] $srvPoint, [X509Certificate] $certificate, [WebRequest] $request, [int] $certificateProblem) {
+        return $true
+    }
+}
+
+function Disable-SslCertificateCheck {
+    process {   
+        [ServicePointManager]::CertificatePolicy = [TrustAllCertsPolicy]::new()
+        "fritz: disabled check of SSL certificates in this process" | Write-Verbose
+    }
+}
+
+if([ServicePointManager]::CertificatePolicy.GetType().FullName -eq "System.Net.DefaultCertPolicy") {
+    "fritz: disabling check of SSL certificates in this process" | Write-Host -ForegroundColor DarkYellow
+    Disable-SslCertificateCheck
+} elseif([ServicePointManager]::CertificatePolicy.GetType().Name -eq "TrustAllCertsPolicy") {
+    "fritz: TrustAllCertsPolicy was found" | Write-Host -ForegroundColor Green
+} else {
+    "fritz: a non-default CertificatePolicy was found: $([ServicePointManager]::CertificatePolicy.GetType().FullName). Fritz may not work properly" | Write-Host -ForegroundColor Red
+}
+
+#endregion
+
+# (Select-Tr64Service|choose|Select-Tr64ServiceAction|choose|Get-Tr64ServiceActionDescription).OuterXml
+#region Inspect device configuration
 
 function Get-Tr64Description {
     process {
@@ -32,12 +63,19 @@ function Select-Tr64Service {
         The values of the XmlElements are mapped to properties of a data class for easier processing
 
     .EXAMPLE
-        Select-Tr64Service 
+        Select-Tr64Service
+
         Retrieves a list of services available from the root device
 
     .EXAMPLE
         Get-Tr64Description | Select-Tr64Service 
+
         Retrieves a list of services available from the root device
+
+    .EXAMPLE
+        Get-Tr64Description | Select-Tr64Service | Out-GridView -PassThru
+
+        Retrieves a list of services and selects a subset interactively 
     #>
     [CmdletBinding()]
     param(
@@ -160,7 +198,7 @@ function Select-Tr64DeviceServiceList {
 function Get-Tr64ServiceActionDescription {
     <#
     .SYNOPSIS
-        Retrieves a paort of a the XML description of a services type decribing only the 
+        Retrieves a part of a the XML description of a services type describing only the 
         given action.
     
     .EXAMPLE
@@ -334,8 +372,7 @@ function Get-PhoneBookList {
 
         "Received phone book list (ids:$($responseXml.Envelope.Body.GetPhonebookListResponse.NewPhonebookList))"| Write-Verbose 
 
-        $responseXml.Envelope.Body.GetPhonebookListResponse.NewPhonebookList | Write-Verbose
-
+        $responseXml.Envelope.Body.GetPhonebookListResponse.NewPhonebookList | Write-Output
     } 
 }
 
@@ -447,7 +484,7 @@ function Get-PhoneBookEntry {
         "Received phone book '$($responseXml.Envelope.Body.GetPhonebookEntryResponse.NewPhonebookEntryData)'"| Write-Verbose 
         
         $phoneBookEntryDataXml = [xml]($responseXml.Envelope.Body.GetPhonebookEntryResponse.NewPhonebookEntryData)
-        $phoneBookEntryDataXml.OuterXml
+        $phoneBookEntryDataXml.OuterXml | Write-Output
     }
 }
 
@@ -540,4 +577,203 @@ function Get-CallList {
 
 #endregion
 
-Export-ModuleMember -Function "*-*"
+#region urn:dslforum-org:service:X_AVM-DE_Speedtest:1
+
+function Get-SpeedTestInfo {
+    param(
+        [Parameter()]
+        $FritzBoxUri = "https://fritz.box",
+
+        [Parameter()]
+        [pscredential]$Credentials = (cachedFritzBoxCredentials),
+
+        [Parameter()]
+        [int]$SecurityPort = (cachedSecurityPort),
+
+        [Parameter()]
+        [string]$ControlUrl = "/upnp/control/x_speedtest",
+
+        [Parameter()]
+        [string]$ServiceType = "urn:dslforum-org:service:X_AVM-DE_Speedtest:1",
+
+        [Parameter()]
+        [string]$ActionName = "GetInfo"
+    )
+    process {
+        $parameters = @{
+            Credential = $Credentials
+            Headers = @{
+                "Content-Type" = 'text/xml; charset="utf-8"'
+                "SOAPACTION"= "$ServiceType#$ActionName"
+            }
+            Body = @"
+<?xml version="1.0"?>
+<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+     <s:Body>
+        <u:$ActionName xmlns:u="$ServiceType">
+        </u:$ActionName>
+    </s:Body>
+</s:Envelope>
+"@
+        }
+
+        $responseXml = Invoke-RestMethod -Method Post -Uri "$FritzBoxUri`:$SecurityPort$ControlUrl" @parameters
+        $responseXml.Envelope.Body.GetInfoResponse | Write-Output
+    }
+}
+#endregion 
+
+#region urn:dslforum-org:service:WANCommonInterfaceConfig:1 / data throughput, common if properties
+# ((Select-Tr64DeviceList|choose).serviceList.service).OuterXML
+# ((Select-Tr64DeviceList|choose).serviceList.service)|Select-Tr64ServiceAction
+# (((Select-Tr64DeviceList|choose).serviceList.service)|Select-Tr64ServiceAction|choose|Get-Tr64ServiceActionDescription).OuterXML
+
+function Get-OnlineMonitor {
+    <#
+    .SYNOPSIS
+        Retrieves data throughput per seconds as measured for the last 20 seconds.
+    #>
+    param(
+        [Parameter()]
+        $FritzBoxUri = "https://fritz.box",
+
+        [Parameter()]
+        [pscredential]$Credentials = (cachedFritzBoxCredentials),
+
+        [Parameter()]
+        [int]$SecurityPort = (cachedSecurityPort),
+
+        [Parameter()]
+        [string]$ControlUrl = "/upnp/control/wancommonifconfig1",
+
+        [Parameter()]
+        [string]$ServiceType = "urn:dslforum-org:service:WANCommonInterfaceConfig:1",
+
+        [Parameter()]
+        [string]$ActionName = "X_AVM-DE_GetOnlineMonitor"
+    )
+    process {
+        $parameters = @{
+            Credential = $Credentials
+            Headers = @{
+                "Content-Type" = 'text/xml; charset="utf-8"'
+                "SOAPACTION"= "$ServiceType#$ActionName"
+            }
+            Body = @"
+<?xml version="1.0"?>
+<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+     <s:Body>
+        <u:$ActionName xmlns:u="$ServiceType">
+            <NewSyncGroupIndex>0</NewSyncGroupIndex>
+        </u:$ActionName>
+    </s:Body>
+</s:Envelope>
+"@
+        }
+
+        $responseXml = Invoke-RestMethod -Method Post -Uri "$FritzBoxUri`:$SecurityPort$ControlUrl" @parameters
+        $responseXml.Envelope.Body.'X_AVM-DE_GetOnlineMonitorResponse'
+    }
+}
+
+function Get-CommonLinkProperties {
+    <#
+    .SYNOPSIS
+        Retrieves the current DSL link proprties like max upload download speed as the 
+        Fritz box reads them from the providers link metdata.
+    #>
+    param(
+        [Parameter()]
+        $FritzBoxUri = "https://fritz.box",
+
+        [Parameter()]
+        [pscredential]$Credentials = (cachedFritzBoxCredentials),
+
+        [Parameter()]
+        [int]$SecurityPort = (cachedSecurityPort),
+
+        [Parameter()]
+        [string]$ControlUrl = "/upnp/control/wancommonifconfig1",
+
+        [Parameter()]
+        [string]$ServiceType = "urn:dslforum-org:service:WANCommonInterfaceConfig:1",
+
+        [Parameter()]
+        [string]$ActionName = "GetCommonLinkProperties"
+    )
+    process {
+        $parameters = @{
+            Credential = $Credentials
+            Headers = @{
+                "Content-Type" = 'text/xml; charset="utf-8"'
+                "SOAPACTION"= "$ServiceType#$ActionName"
+            }
+            Body = @"
+<?xml version="1.0"?>
+<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+     <s:Body>
+        <u:$ActionName xmlns:u="$ServiceType">
+        </u:$ActionName>
+    </s:Body>
+</s:Envelope>
+"@
+        }
+
+        $responseXml = Invoke-RestMethod -Method Post -Uri "$FritzBoxUri`:$SecurityPort$ControlUrl" @parameters
+        $responseXml.Envelope.Body.GetCommonLinkPropertiesResponse | Write-Output
+    }
+}
+
+#endregion 
+
+#region urn:dslforum-org:service:WANDSLInterfaceConfig:1 / Get DSL statistics
+
+function Get-StatisticsTotal {
+    <#
+    .SYNOPSIS
+        Retrieves the current DSL link proprties like max upload download speed as the 
+        Fritz box reads them from the providers link metdata.
+    #>
+    param(
+        [Parameter()]
+        $FritzBoxUri = "https://fritz.box",
+
+        [Parameter()]
+        [pscredential]$Credentials = (cachedFritzBoxCredentials),
+
+        [Parameter()]
+        [int]$SecurityPort = (cachedSecurityPort),
+
+        [Parameter()]
+        [string]$ControlUrl = "/upnp/control/wandslifconfig1",
+
+        [Parameter()]
+        [string]$ServiceType = "urn:dslforum-org:service:WANDSLInterfaceConfig:1",
+
+        [Parameter()]
+        [string]$ActionName = "GetStatisticsTotal"
+    )
+    process {
+        $parameters = @{
+            Credential = $Credentials
+            Headers = @{
+                "Content-Type" = 'text/xml; charset="utf-8"'
+                "SOAPACTION"= "$ServiceType#$ActionName"
+            }
+            Body = @"
+<?xml version="1.0"?>
+<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+     <s:Body>
+        <u:$ActionName xmlns:u="$ServiceType">
+        </u:$ActionName>
+    </s:Body>
+</s:Envelope>
+"@
+        }
+
+        $responseXml = Invoke-RestMethod -Method Post -Uri "$FritzBoxUri`:$SecurityPort$ControlUrl" @parameters
+        $responseXml.Envelope.Body.GetStatisticsTotalResponse | Write-Output
+    }
+}
+
+#endregion 
