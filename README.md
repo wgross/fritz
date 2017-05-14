@@ -1,8 +1,8 @@
-# fritz
+### fritz
 
 After stumbling upon a perl implementation of TR64 I've digged out an article from german computer magazine c't where access to the fritz box was shown by using powershell scripting. While the article gave me some insight in the soapish communication protocol TR64. I didn't like the powershell implementation. It didn't use newer powershell features (> v3.0) like 'Invoke-RestMethod'.
 
-This repo contains my take on the implementation of TR64 with powershell. It is by far not complete and provides a set of commandöet to read data from the fritzbox:
+This repo contains my take on the implementation of TR64 with powershell. It is by far not complete and provides a set of commandlets to read data from the fritzbox:
 
 * Retrieve TR64 soap services and their parameter definitions (Get-TR64.., Select-Tr64.. cmdlets)
 * Retrieve the (unsecured) device information
