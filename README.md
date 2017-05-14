@@ -14,8 +14,17 @@ This repo might be an interesting read for anybody on the same powershell journe
 
 ## Precondition: Accept the Fritz Box Self Signed Certificates
 
-SSL communication with the fritz box over the secure port uses a self signed certificate. This certificate is rejected by the .Net frameworks WebClient class by default. To help with this I've included my Web security helper script 'Intialize-WebClientSecurity.ps1' in this repo. Call this script first before you use the fritz modules functions.
+SSL communication with the fritz box over the secure port uses a self signed certificate. This certificate is rejected by the .Net frameworks WebClient class by default. To overcome this restriction the fritz module registers on loading its own certificate validation strategy wich always returns $true;
 
 ```
-Initialize-WebClientSecurity -AcceptAllCertificates
+class TrustAllCertsPolicy : ICertificatePolicy {
+    [bool] CheckValidationResult([ServicePoint] $srvPoint, [X509Certificate] $certificate, [WebRequest] $request, [int] $certificateProblem) {
+        return $true
+    }
+}
+
+[ServicePointManager]::CertificatePolicy = [TrustAllCertsPolicy]::new()
 ```
+
+If you are sensitive with your SSL security in powershell you should not use a powershell process running fritz for any other purpose.
+
