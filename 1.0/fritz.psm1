@@ -1,6 +1,9 @@
 ﻿using namespace System.Net
 using namespace System.Security.Cryptography.X509Certificates
 
+# just try it, no prob of it isn't working
+Import-Module passwordVault -ErrorAction SilentlyContinue
+
 #region Accept the self-signed certificate of the fritz box
 
 # fritz box ssl certificates are self signed. .Net rejectes these not by default
@@ -11,6 +14,10 @@ class TrustAllCertsPolicy : ICertificatePolicy {
 }
 
 function Disable-SslCertificateCheck {
+    <#
+    .SYNOPSIS
+        Registers a certificate policy which accepts any SSL certificate
+    #>
     process {   
         [ServicePointManager]::CertificatePolicy = [TrustAllCertsPolicy]::new()
         "fritz: disabled check of SSL certificates in this process" | Write-Verbose
@@ -95,6 +102,25 @@ function Select-Tr64Service {
     }
 }
 
+function Select-Tr64DeviceInfo {
+    <#
+    .SYNOPSIS
+        Retrieves the Tr64 device properties like manufacturer, model name etc
+    .DESCRIPTION
+        These are taken from /root/device/
+    .EXAMPLE
+        Get-Tr64Description|Select-Tr64DeviceInfo
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(ValueFromPipeline)]
+        [xml]$Tr64Xml = (cachedTr64Description)
+    )
+    process {
+        $Tr64Xml.root.device | Write-Output
+    }
+}
+
 class Tr64ServiceAction {
     $ServiceType
     $SCPDURL
@@ -139,18 +165,13 @@ function Select-Tr64ServiceAction {
     }
 }
 
-function Select-Tr64DeviceInfo {
-    [CmdletBinding()]
-    param(
-        [Parameter(ValueFromPipeline)]
-        [xml]$Tr64Xml = (cachedTr64Description)
-    )
-    process {
-        $Tr64Xml.root.device | Write-Output
-    }
-}
-
 function Select-Tr64DeviceList {
+    <#
+    .SYNOPSIS
+        Retrieves the list of logical sub devices from a Tr64 description.
+    .DESCRIPTION
+        These are taken from /root/device/deviceList/device.
+    #>
     [CmdletBinding()]
     param(
         [Parameter(ValueFromPipeline)]
@@ -240,6 +261,15 @@ function New-FritzBoxCredentials {
 function cachedFritzBoxCredentials {
     if($global:cachedFritzboxCredentials) {
         return $global:cachedFritzboxCredentials
+    } elseif(Get-Module passwordVault) {
+        # try to retrieve password from password valut
+        $scriptUser = Get-StoredCredentials -UserName "dslf-config" -Resource "http://fritz.box/" 
+        $scriptUser.RetrievePassword()
+        if($scriptUser) {
+            "Using credential from password vault"|Write-Verbose
+            $securePassword = ConvertTo-SecureString -String $scriptUser.Password -AsPlainText -Force
+            return ($global:cachedFritzboxCredentials=[pscredential]::new("dslf-config",$securePassword))
+        }        
     }
     return ($global:cachedFritzboxCredentials = New-FritzBoxCredentials)
 }
