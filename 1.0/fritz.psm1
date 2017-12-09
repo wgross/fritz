@@ -1,7 +1,6 @@
 ﻿using namespace System.Net
 using namespace System.Security.Cryptography.X509Certificates
 
-# just try it, no prob of it isn't working
 Import-Module passwordVault -ErrorAction SilentlyContinue
 
 #region Accept the self-signed certificate of the fritz box
@@ -36,12 +35,17 @@ if([ServicePointManager]::CertificatePolicy.GetType().FullName -eq "System.Net.D
 #endregion
 
 # (Select-Tr64Service|choose|Select-Tr64ServiceAction|choose|Get-Tr64ServiceActionDescription).OuterXml
+
 #region Inspect device configuration
 
 function Get-Tr64Description {
+    param(
+        [Parameter()]
+        [string]$Tr64DescUri = "http://fritz.box:49000/tr64desc.xml"
+    )
     process {
         $global:cachedTr64Description = $null
-        Invoke-RestMethod -Method Get -Uri http://fritz.box:49000/tr64desc.xml | Write-Output
+        Invoke-RestMethod -Method Get -Uri $Tr64DescUri | Write-Output
     }
 }
 
@@ -804,6 +808,24 @@ function Get-StatisticsTotal {
         $responseXml = Invoke-RestMethod -Method Post -Uri "$FritzBoxUri`:$SecurityPort$ControlUrl" @parameters
         $responseXml.Envelope.Body.GetStatisticsTotalResponse | Write-Output
     }
+}
+
+#endregion 
+
+#region Format a fritt report
+
+function Get-FritzStatusReport {
+    [CmdletBinding()]
+    [Alias("fritzReport")]
+    param()
+    # last calls
+    Get-CallList | Select-Object -First 5 | Format-Table -AutoSize -Property Type,Device,CalledNumber,Name
+    
+    $currentDownstream = (Get-OnlineMonitor|Select-Object -Expand newds_current_bps).split(",") | ForEach-Object { [int]::Parse($_)} | Measure-Object -Average | Select-Object -ExpandProperty Average 
+    "Current downstream: $(($currentDownstream/100).ToString(".##")) kbit/sec"|Out-Host
+
+    $currentUpstream = (Get-OnlineMonitor|Select-Object -Expand newus_current_bps).split(",") | ForEach-Object { [int]::Parse($_)} | Measure-Object -Average | Select-Object -ExpandProperty Average 
+    "Current upstream: $(($currentUpstream/100).ToString(".##")) kbit/sec"|Out-Host    
 }
 
 #endregion 
