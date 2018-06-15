@@ -5,7 +5,7 @@ Import-Module passwordVault -ErrorAction SilentlyContinue
 
 #region Accept the self-signed certificate of the fritz box
 
-# fritz box ssl certificates are self signed. .Net rejectes these not by default
+# fritz box ssl certificates are self signed. .Net rejects these by default
 class TrustAllCertsPolicy : ICertificatePolicy {
     [bool] CheckValidationResult([ServicePoint] $srvPoint, [X509Certificate] $certificate, [WebRequest] $request, [int] $certificateProblem) {
         return $true
